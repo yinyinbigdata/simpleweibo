@@ -4,7 +4,7 @@ import (
 	"net/rpc"
 	"net"
 	"tribproto"
-	"os"
+	//"os"
 	"log"
 )
 
@@ -15,7 +15,7 @@ type Tribbleclient struct {
 	client *rpc.Client
 }
 
-func NewTribbleclient(serverAddress string, serverPort string) (*Tribbleclient, os.Error) {
+func NewTribbleclient(serverAddress string, serverPort string) (*Tribbleclient, error) {
 	client, err := rpc.DialHTTP("tcp", net.JoinHostPort(serverAddress, serverPort))
 	if (err != nil) {
 		log.Fatal("Could not connect to server:", err)
@@ -27,7 +27,7 @@ func (tc *Tribbleclient) Close() {
 	tc.client.Close()
 }
 
-func (tc *Tribbleclient) CreateUser(Userid string) (int, os.Error) {
+func (tc *Tribbleclient) CreateUser(Userid string) (int, error) {
 	args := &tribproto.CreateUserArgs{Userid}
 	var reply tribproto.CreateUserReply
 	err := tc.client.Call("Tribserver.CreateUser", args, &reply)
@@ -37,7 +37,7 @@ func (tc *Tribbleclient) CreateUser(Userid string) (int, os.Error) {
 	return reply.Status, nil
 }
 
-func (tc *Tribbleclient) GetSubscriptions(Userid string) ([]string, int, os.Error) {
+func (tc *Tribbleclient) GetSubscriptions(Userid string) ([]string, int, error) {
 	args := &tribproto.GetSubscriptionsArgs{Userid}
 	var reply tribproto.GetSubscriptionsReply
 	err := tc.client.Call("Tribserver.GetSubscriptions", args, &reply)
@@ -47,7 +47,7 @@ func (tc *Tribbleclient) GetSubscriptions(Userid string) ([]string, int, os.Erro
 	return reply.Userids, reply.Status, nil
 }
 
-func (tc *Tribbleclient) dosub(funcname, Userid, Targetuser string) (int, os.Error) {
+func (tc *Tribbleclient) dosub(funcname, Userid, Targetuser string) (int, error) {
 	args := &tribproto.SubscriptionArgs{Userid, Targetuser}
 	var reply tribproto.SubscriptionReply
 	err := tc.client.Call(funcname, args, &reply)
@@ -57,23 +57,23 @@ func (tc *Tribbleclient) dosub(funcname, Userid, Targetuser string) (int, os.Err
 	return reply.Status, nil
 }
 
-func (tc *Tribbleclient) AddSubscription(Userid, Targetuser string) (int, os.Error) {
+func (tc *Tribbleclient) AddSubscription(Userid, Targetuser string) (int, error) {
 	return tc.dosub("Tribserver.AddSubscription", Userid, Targetuser)
 }
 
-func (tc *Tribbleclient) RemoveSubscription(Userid, Targetuser string) (int, os.Error) {
+func (tc *Tribbleclient) RemoveSubscription(Userid, Targetuser string) (int, error) {
 	return tc.dosub("Tribserver.RemoveSubscription", Userid, Targetuser)
 }
 
-func (tc *Tribbleclient) GetTribbles(Userid string) ([]tribproto.Tribble, int, os.Error) {
+func (tc *Tribbleclient) GetTribbles(Userid string) ([]tribproto.Tribble, int, error) {
 	return tc.dotrib("Tribserver.GetTribbles", Userid);
 }
 
-func (tc *Tribbleclient) GetTribblesBySubscription(Userid string) ([]tribproto.Tribble, int, os.Error) {
+func (tc *Tribbleclient) GetTribblesBySubscription(Userid string) ([]tribproto.Tribble, int, error) {
 	return tc.dotrib("Tribserver.GetTribblesBySubscription", Userid);
 }
 
-func (tc *Tribbleclient) dotrib(funcname, Userid string) ([]tribproto.Tribble, int, os.Error) {
+func (tc *Tribbleclient) dotrib(funcname, Userid string) ([]tribproto.Tribble, int, error) {
 	args := &tribproto.GetTribblesArgs{Userid}
 	var reply tribproto.GetTribblesReply
 	err := tc.client.Call(funcname, args, &reply)
@@ -83,7 +83,7 @@ func (tc *Tribbleclient) dotrib(funcname, Userid string) ([]tribproto.Tribble, i
 	return reply.Tribbles, reply.Status, nil
 }
 
-func (tc *Tribbleclient) PostTribble(Userid, Contents string) (int, os.Error) {
+func (tc *Tribbleclient) PostTribble(Userid, Contents string) (int, error) {
 	args := &tribproto.PostTribbleArgs{Userid, Contents}
 	var reply tribproto.PostTribbleReply
 	err := tc.client.Call("Tribserver.PostTribble", args, &reply)
