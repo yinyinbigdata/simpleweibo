@@ -3,6 +3,7 @@ package server
 import (
     "container/list"
     "sync"
+    //"fmt"
 )
 
 type GetArgs struct {
@@ -50,17 +51,18 @@ func NewCache() *Cache {
     return c
 }
 
-func (c *Cache) get(key string) string {
+func (c *Cache) get(key string) (string, bool) {
     c.lock.RLock()
     defer c.lock.RLock()
-    return c.kv[key]
+    value, ret := c.kv[key]
+    return value, ret
 }
 
 func (c *Cache) put(key string, value string) bool {
     c.lock.Lock()
     defer c.lock.Unlock()
     if _, e := c.kv[key]; e {
-        return e
+        return false
     } 
     c.kv[key] = value
     return true
@@ -72,12 +74,31 @@ func (c *Cache) getList(key string) *list.List {
     return c.kvl[key]
 }
 
-func (c *Cache) appendToList(key string, value string) error {
+func (c *Cache) appendToList(key string, value string) bool {
     c.lock.Lock()
     defer c.lock.Unlock()
     if _, e := c.kvl[key]; e == false {
         c.kvl[key] = list.New()
     }
     c.kvl[key].PushFront(value)
-    return nil
+    return true
+}
+
+func (c *Cache) removeFromList(key string, value string) bool {
+    c.lock.Lock()
+    defer c.lock.Unlock()
+    var kvl *list.List
+    var ret bool
+    
+    if kvl, ret = c.kvl[key]; ret == false {
+        return false
+    }
+    for e := kvl.Front(); e != nil; e = e.Next() {
+        if e.Value.(string) == value {
+            kvl.Remove(e)
+            //fmt.Printf("remove from list ", e.Value.(string))
+            return true
+        }
+    }
+    return false
 }
