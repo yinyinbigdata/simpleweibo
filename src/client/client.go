@@ -6,9 +6,9 @@ import (
 	"flag"
 	"tribproto"
 	"tribbleclient"
-	"os"
+	//"os"
 	"strings"
-	"time"
+	//"time"
 )
 
 
@@ -112,7 +112,7 @@ func TribStatusToString(status int) string {
 	return "Unknown error"
 }
 
-func PrintStatus(cmdname string, status int, err os.Error) {
+func PrintStatus(cmdname string, status int, err error) {
 	if (status == tribproto.OK) {
 		fmt.Printf("%s succeeded\n", cmdname)
 	} else {
@@ -122,7 +122,8 @@ func PrintStatus(cmdname string, status int, err os.Error) {
 
 func PrintTribble(t tribproto.Tribble) {
 	fmt.Printf("%16.16s - %s - %s\n",
-		t.Userid, time.SecondsToLocalTime(t.Posted / 1e9), t.Contents)
+		//t.Userid, time.SecondsToLocalTime(t.Posted / 1e9), t.Contents)
+        t.Userid, t.Posted, t.Contents)
 
 }
 
