@@ -1,4 +1,4 @@
-package server
+package main
 
 //  "server/kvstorage"
 import (
@@ -48,8 +48,8 @@ func TestCacheGetList(t *testing.T) {
     c.appendToList("hello", " and go ")
     
     vl := c.getList("hello")
-    for e := vl.Front(); e != nil; e = e.Next() {
-        fmt.Printf(e.Value.(string))
+    for _, ele := range vl {
+        fmt.Printf(ele)
     }
 }
 
@@ -59,12 +59,12 @@ func TestCachePendToList(t *testing.T) {
     c.appendToList("count", "one")
     c.appendToList("count", "two")
     l := c.getList("count")
-    if l.Len() != 2 {
-        t.Error("list size not right (2)")
+    if len(l) != 2 {
+        t.Error("list size not right (2), list size %d", len(l))
     }
-    l = c.getList("count")  
     c.appendToList("count", "three")
-    if l.Len() != 3 {
+    l = c.getList("count")  
+    if len(l) != 3 {
         t.Error("list size not right (3)")
     }
 }
@@ -75,24 +75,26 @@ func TestCacheRemoveFromList(t *testing.T) {
     c.appendToList("count", "one")
     c.appendToList("count", "two")
     l := c.getList("count")
-    if l.Len() != 2 {
+    if len(l) != 2 {
         t.Error("list size not right (2)")
     }
-    l = c.getList("count")  
     c.appendToList("count", "three")
-    if l.Len() != 3 {
+    l = c.getList("count") 
+    if len(l) != 3 {
         t.Error("list size not right (3)")
     }
     
     c.removeFromList("count", "two")
     l = c.getList("count")
-    if l.Len() !=2 {
+    for _, ele := range l {
+        fmt.Printf(ele)
+        fmt.Printf(" ")
+    }
+    if len(l) !=2 {
         t.Error("list size not right, after remove")
     }
     
-    for e := l.Front(); e != nil; e = e.Next() {
-        fmt.Printf(e.Value.(string))
-    }
+
 }
 
 
