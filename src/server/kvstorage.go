@@ -53,16 +53,16 @@ func NewCache() *Cache {
 }
 
 func (c *Cache) get(key string) (string, bool) {
-    // c.lock.RLock()
-    // defer c.lock.RLock()
+    c.lock.RLock()
+    defer c.lock.RUnlock()
     value, ret := c.kv[key]
     log.Printf("cache: get %s %s", key, value)
     return value, ret
 }
 
 func (c *Cache) put(key string, value string) bool {
-    // c.lock.Lock()
-    // defer c.lock.Unlock()
+    c.lock.Lock()
+    defer c.lock.Unlock()
     if _, e := c.kv[key]; e {
         return false
     } 
@@ -72,17 +72,15 @@ func (c *Cache) put(key string, value string) bool {
 }
 
 func (c *Cache) getList(key string) []string {
-    // c.lock.RLock()
-    // defer c.lock.RUnlock()
+    c.lock.RLock()
+    defer c.lock.RUnlock()
     log.Printf("cache: getList key %s", key)
     return c.kvl[key]
 }
 
 func (c *Cache) appendToList(key string, value string) bool {
-    log.Printf("cache: appendToList call(nolock) %s %s", key, value)
-    // c.lock.Lock()
-    // defer c.lock.Unlock()
-    log.Printf("cache: appendToList call(lock) %s %s", key, value)
+    c.lock.Lock()
+    defer c.lock.Unlock()
     if _, e := c.kvl[key]; e == false {
        c.kvl[key] = make([]string, 0)
     }
@@ -92,8 +90,8 @@ func (c *Cache) appendToList(key string, value string) bool {
 }
 
 func (c *Cache) removeFromList(key string, value string) bool {
-    // c.lock.Lock()
-    // defer c.lock.Unlock()
+    c.lock.Lock()
+    defer c.lock.Unlock()
     var ret bool
     var l []string
     
