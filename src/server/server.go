@@ -1,5 +1,5 @@
-//package main
-package server
+package main
+//package server
 
 import (
 	"net/rpc"
@@ -9,37 +9,53 @@ import (
 	"fmt"
 	"tribproto"
 	"flag"
+    "time"
+    "strconv"
+    "strings"
 )
 
 type Tribserver struct {
-    storage Cache
+    storage *Cache
     createUserChan chan string
     createUserReplyChan chan bool
-    addSubcripChan chan *tribproto.SubscriptionArgs
-    addSubcripReplyChan chan int
+    addSubscripChan chan *tribproto.SubscriptionArgs
+    addSubscripReplyChan chan int
+    removeSubscripChan chan *tribproto.SubscriptionArgs
+    removeSubscripReplyChan chan int
+    getSubscripChan chan *tribproto.GetSubscriptionsArgs
+    getSubscripReplyChan chan *tribproto.GetSubscriptionsReply
+    postTribbleChan chan *tribproto.PostTribbleArgs
+    postTribbleReplyChan chan int
+    getTribbleChan chan string
+    getTribbleReplyChan chan *tribproto.GetTribblesReply
+    getTribbleBySubscriptionChan chan string
+    getTribbleBySubscriptionReplyChan chan *tribproto.GetTribblesReply
 }
 
 func NewTribserver() *Tribserver {
-	ts := &Tribserver{
-	    storage : NewCache(),
-        createUserChan : make(chan string),
-        createUserReplyChan : make(chan int),
-	}
-    
+	ts := &Tribserver{}
+   
+    ts.storage = NewCache()
+    ts.createUserChan = make(chan string)
+    ts.createUserReplyChan = make(chan bool)
+    ts.addSubscripChan = make(chan *tribproto.SubscriptionArgs)
+    ts.addSubscripReplyChan = make(chan int)
+    ts.removeSubscripChan = make(chan *tribproto.SubscriptionArgs)
+    ts.removeSubscripReplyChan = make(chan int)
+    ts.getSubscripChan = make(chan *tribproto.GetSubscriptionsArgs)
+    ts.getSubscripReplyChan = make(chan *tribproto.GetSubscriptionsReply)
+    ts.postTribbleChan = make(chan *tribproto.PostTribbleArgs)
+    ts.postTribbleReplyChan = make(chan int)
+    ts.getTribbleChan = make(chan string)
+    ts.getTribbleReplyChan = make(chan *tribproto.GetTribblesReply)
+    ts.getTribbleBySubscriptionChan = make(chan string)
+    ts.getTribbleBySubscriptionReplyChan = make(chan *tribproto.GetTribblesReply)
+        
     go ts.loop()
 	return ts
 }
 
-func (ts *Tribserver) loop() {
-    for {
-        select {
-        case userId := <- createUser:
-            ts.handleUserCreate(serId)
-        case subscripargs := <- addSubcripChan:
-            ts.handleAddSubcrip(subscripargs.Userid, subscripargs.Targetuser)
-        }
-    }
-}
+
 
 func (ts *Tribserver) handleUserCreate(userId string) {
     userKey := "user-" + userId
@@ -56,6 +72,7 @@ func (ts *Tribserver) CreateUser(args *tribproto.CreateUserArgs, reply *tribprot
     if ret == false {
         reply.Status = tribproto.EEXISTS
     }
+    log.Printf("createUser")
 	return nil
 }
 
@@ -68,7 +85,7 @@ func (ts *Tribserver) CheckUserExist(userId string) bool {
     return false
 }
 
-func (ts *TRibserver) handleAddSubcrip(userId string, targetId string) {
+func (ts *Tribserver) handleAddSubscrip(userId string, targetId string) {
     var ret int
     // check user and targetId
     if !ts.CheckUserExist(userId) {
@@ -76,40 +93,182 @@ func (ts *TRibserver) handleAddSubcrip(userId string, targetId string) {
     } else if !ts.CheckUserExist(targetId) {
         ret = tribproto.ENOSUCHTARGETUSER
     } else {
-        subcripKey := "subcrip-" + userId
-        ok := ts.storage.appendToList(subcripKey, targetId)
+        subscripKey := "subscrip-" + userId
+        log.Printf("handleAddSubscrip: appendToList subscripKey %s targetId %s", subscripKey, targetId)
+        ok := ts.storage.appendToList(subscripKey, targetId)
         if ok {
             ret = tribproto.OK
         }
     }
-    ts.addSubcripReplyChan <- ret
+    ts.addSubscripReplyChan <- ret
 }
 
 func (ts *Tribserver) AddSubscription(args *tribproto.SubscriptionArgs, reply *tribproto.SubscriptionReply) error {
-	ts.addSubcripChan <- args
-    ret := <- ts.addSubcripReplyChan
+	log.Printf("AddSubscription call")
+    ts.addSubscripChan <- args
+    ret := <- ts.addSubscripReplyChan
     reply.Status = ret
+    log.Printf("AddSubscription end")
     return nil
 }
 
+func (ts *Tribserver) handleRemoveSubsrip(userId string, targetId string) {
+    var ret int 
+    if !ts.CheckUserExist(userId) {
+        ret = tribproto.ENOSUCHUSER
+    } else if !ts.CheckUserExist(targetId) {
+        ret = tribproto.ENOSUCHTARGETUSER
+    } else {
+        subscripKey := "subscrip-" + userId
+        ok := ts.storage.removeFromList(subscripKey, targetId)
+        if ok {
+            ret = tribproto.OK
+        }
+    }
+    ts.removeSubscripReplyChan <- ret
+}
+
 func (ts *Tribserver) RemoveSubscription(args *tribproto.SubscriptionArgs, reply *tribproto.SubscriptionReply) error {
-	return nil
+	log.Printf("RemoveSubscription call")
+    ts.removeSubscripChan <- args
+    ret := <- ts.removeSubscripReplyChan
+    reply.Status = ret
+    log.Printf("RemoveSubscription end")
+    return nil
+}
+
+func (ts *Tribserver) handleGetsubscrip(userId string) {
+    ret := &tribproto.GetSubscriptionsReply{}
+    if !ts.CheckUserExist(userId) {
+        ret.Status = tribproto.ENOSUCHUSER
+    } else {
+        subscripKey := "subscrip-" + userId
+        userIds := ts.storage.getList(subscripKey)
+        ret.Userids = userIds
+    }
+    ts.getSubscripReplyChan <- ret
 }
 
 func (ts *Tribserver) GetSubscriptions(args *tribproto.GetSubscriptionsArgs, reply *tribproto.GetSubscriptionsReply) error {
-	return nil
+	log.Printf("GetSubscriptions call")
+    ts.getSubscripChan <- args
+    reply = <- ts.getSubscripReplyChan
+    log.Printf("GetSubscriptions end")
+    return nil
+}
+
+// post-userid: postid, postid
+// postid: dga:post-23ac9138d7
+func (ts *Tribserver) handlePostTribble(userId string, content string) {
+    var ret int
+    if !ts.CheckUserExist(userId) {
+        ret = tribproto.ENOSUCHUSER
+        ts.postTribbleReplyChan <- ret
+        return
+    }
+    
+    userPostKey := "post-" + userId
+    postId := userId + ":post-" + strconv.FormatInt(time.Now().UnixNano(), 10)
+    ts.storage.put(postId, content)
+    ts.storage.appendToList(userPostKey, postId)
+    // FixMe:
+    ts.postTribbleReplyChan <- ret
 }
 
 func (ts *Tribserver) PostTribble(args *tribproto.PostTribbleArgs, reply *tribproto.PostTribbleReply) error {
-	return nil
+	log.Printf("PostTribble call")
+    ts.postTribbleChan <- args
+    ret := <- ts.postTribbleReplyChan
+    reply.Status = ret
+    log.Printf("PostTribble end")
+    return nil
+}
+
+func (ts *Tribserver) getTribblesByUserId(userId string)  ([]tribproto.Tribble, int) {
+    tribbles := make([]tribproto.Tribble, 0)
+    status := tribproto.OK
+    
+    postUserId := "post-" + userId
+    tribbleIds := ts.storage.getList(postUserId)
+    
+    for _, tribbleId := range tribbleIds {
+        t := &tribproto.Tribble{}
+        t.Userid = userId
+        postedStr := strings.Split(tribbleId, "-")[1]
+        t.Posted, _ = strconv.ParseInt(postedStr, 10, 64)
+        t.Contents, _ = ts.storage.get(tribbleId)
+        tribbles = append(tribbles, *t)
+    }
+    
+    return tribbles, status
+}
+
+func (ts *Tribserver) handleGetTribles(userId string) {
+    reply := &tribproto.GetTribblesReply{}
+    tribbles, status := ts.getTribblesByUserId(userId)
+    reply.Status = status
+    reply.Tribbles = tribbles
+    ts.getTribbleReplyChan <- reply
 }
 
 func (ts *Tribserver) GetTribbles(args *tribproto.GetTribblesArgs, reply *tribproto.GetTribblesReply) error {
-	return nil
+	log.Printf("GetTribbles call")
+    ts.getTribbleChan <- args.Userid
+    ret := <- ts.getTribbleReplyChan
+    reply.Status = ret.Status
+    reply.Tribbles = ret.Tribbles
+    log.Printf("GetTribbles end")
+    return nil
+}
+
+func (ts *Tribserver) handleGetTribblesBySubscrip(userId string) {
+    log.Printf("handleGetTribblesBySubscrip: userId %s", userId)
+    var tribbles []tribproto.Tribble
+    subscripKey := "subscrip-" + userId
+    subscrips := ts.storage.getList(subscripKey)
+    
+    for _, targetId := range subscrips {
+        targetTribbles, _ := ts.getTribblesByUserId(targetId)
+        log.Printf("handleGetTribblesBySubscrip: userId %s targetId %s", userId, targetId)
+        for _, t := range targetTribbles {
+            tribbles = append(tribbles, t)
+        }
+    }
+    reply := &tribproto.GetTribblesReply{}
+    reply.Status = tribproto.OK
+    reply.Tribbles = tribbles
+    ts.getTribbleBySubscriptionReplyChan <- reply
 }
 
 func (ts *Tribserver) GetTribblesBySubscription(args *tribproto.GetTribblesArgs, reply *tribproto.GetTribblesReply) error {
-	return nil
+	log.Printf("GetTribblesBySubscription call")
+    ts.getTribbleBySubscriptionChan <- args.Userid
+    ret := <- ts.getTribbleBySubscriptionReplyChan
+    reply.Status = ret.Status
+    reply.Tribbles = ret.Tribbles
+    log.Printf("GetTribblesBySubscription end")
+    return nil
+}
+
+func (ts *Tribserver) loop() {
+    for {
+        select {
+        case userId := <- ts.createUserChan:
+            ts.handleUserCreate(userId)
+        case subscripArgs := <- ts.addSubscripChan:
+            ts.handleAddSubscrip(subscripArgs.Userid, subscripArgs.Targetuser)
+        case removescripArgs := <- ts.removeSubscripChan:
+            ts.handleRemoveSubsrip(removescripArgs.Userid, removescripArgs.Targetuser)
+        case getSubscriArgs := <- ts.getSubscripChan:
+            ts.handleGetsubscrip(getSubscriArgs.Userid)
+        case postTribbleArgs := <- ts.postTribbleChan:
+            ts.handlePostTribble(postTribbleArgs.Userid, postTribbleArgs.Contents)
+        case getTribbleUserid := <- ts.getTribbleChan:
+            ts.handleGetTribles(getTribbleUserid)
+        case getTribbleBySubscriUserid := <- ts.getTribbleBySubscriptionChan:
+            ts.handleGetTribblesBySubscrip(getTribbleBySubscriUserid)
+        }
+    }
 }
 
 var portnum *int = flag.Int("port", 9009, "port # to listen on")

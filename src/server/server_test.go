@@ -1,16 +1,17 @@
-package server
+//package server
+package main
 
 import (
 	"testing"
-	_ "rpc"
+	_ "net/rpc"
 	_ "net"
 	"tribproto"
 	"tribbleclient"
 	"os"
-	"../runjob/runjob"
+	"runjob"
 	"log"
 	"fmt"
-	"rand"
+	"math/rand"
 	"time"
 	"runtime"
 )
@@ -24,8 +25,8 @@ type tribblerZoo struct {
 	servers []server
 }
 
-func startOneServer(port int) (*os.Process, os.Error) {
-	return os.StartProcess("bin/server", []string{"bin/server"},  nil)
+func startOneServer(port int) (*os.Process, error) {
+	return os.StartProcess("bin/server", []string{"bin/server"},  &os.ProcAttr{})
 }
 
 func startServers(numServers int) *tribblerZoo {
@@ -43,12 +44,15 @@ func startServers(numServers int) *tribblerZoo {
 }
 
 func killServers(zoo *tribblerZoo) {
+    fmt.Printf("killServes begin\n")
 	for _, s := range zoo.servers {
 		if (s.p != nil) {
 			log.Printf("Killing %s\n", s)
 			s.p.Kill()
+            log.Printf("kill fini\n")
 		}
 	}
+    fmt.Printf("killServers end\n")
 }
 
 func startServer(t *testing.T, port int) *runjob.Job {
@@ -80,7 +84,8 @@ func killServer(server *runjob.Job) {
 	}
 }
 func randportno() int {
-	rand.Seed(time.Nanoseconds())
+	//rand.Seed(time.Nanoseconds())
+    rand.Seed(time.Now().UnixNano())
 	return (10000 + (rand.Int() % 50000))
 }
 
