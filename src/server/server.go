@@ -15,7 +15,7 @@ import (
 )
 
 type Tribserver struct {
-    storage *Cache
+    ss *storageserver.Storageserver
     createUserChan chan string
     createUserReplyChan chan bool
     addSubscripChan chan *tribproto.SubscriptionArgs
@@ -32,10 +32,10 @@ type Tribserver struct {
     getTribbleBySubscriptionReplyChan chan *tribproto.GetTribblesReply
 }
 
-func NewTribserver() *Tribserver {
+func NewTribserver(ss *storageserver.Storageserver) *Tribserver {
 	ts := &Tribserver{}
    
-    ts.storage = NewCache()
+    ts.ss = ss
     ts.createUserChan = make(chan string)
     ts.createUserReplyChan = make(chan bool)
     ts.addSubscripChan = make(chan *tribproto.SubscriptionArgs)
@@ -55,11 +55,15 @@ func NewTribserver() *Tribserver {
 	return ts
 }
 
+var portnum *int = flag.Int("port", 9009, "port # to listen on")
+var storageMasterNodePort *string = flag.String("master", "", "Storage master node. Defaults to its own port.")
+var numNodes *int = flag.Int("N", 0, "Become the master. Specifies the number of nodes in the system, including the master.")
+var nodeID *uint = flag.Uint("id", 0, "The node ID to use for consistent hashing. Should be a 32 bit number.")
 
 
 func (ts *Tribserver) handleUserCreate(userId string) {
     userKey := "user-" + userId
-    ret := ts.storage.put(userKey, "exist")
+    ret := ts.ss.put(userKey, "exist")
     ts.createUserReplyChan <- ret
 }
 
@@ -78,7 +82,7 @@ func (ts *Tribserver) CreateUser(args *tribproto.CreateUserArgs, reply *tribprot
 
 func (ts *Tribserver) CheckUserExist(userId string) bool {
     userKey := "user-" + userId
-    value, ret := ts.storage.get(userKey)
+    value, ret := ts.ss.get(userKey)
     if ret == true && value == "exist" {
         return true
     }
@@ -120,7 +124,7 @@ func (ts *Tribserver) handleRemoveSubsrip(userId string, targetId string) {
         ret = tribproto.ENOSUCHTARGETUSER
     } else {
         subscripKey := "subscrip-" + userId
-        ok := ts.storage.removeFromList(subscripKey, targetId)
+        ok := ts.ss.removeFromList(subscripKey, targetId)
         if ok {
             ret = tribproto.OK
         }
@@ -143,7 +147,7 @@ func (ts *Tribserver) handleGetsubscrip(userId string) {
         ret.Status = tribproto.ENOSUCHUSER
     } else {
         subscripKey := "subscrip-" + userId
-        userIds := ts.storage.getList(subscripKey)
+        userIds := ts.ss.getList(subscripKey)
         ret.Userids = userIds
     }
     ts.getSubscripReplyChan <- ret
@@ -169,8 +173,8 @@ func (ts *Tribserver) handlePostTribble(userId string, content string) {
     
     userPostKey := "post-" + userId
     postId := userId + ":post-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-    ts.storage.put(postId, content)
-    ts.storage.appendToList(userPostKey, postId)
+    ts.ss.put(postId, content)
+    ts.ss.appendToList(userPostKey, postId)
     // FixMe:
     ts.postTribbleReplyChan <- ret
 }
@@ -189,14 +193,14 @@ func (ts *Tribserver) getTribblesByUserId(userId string)  ([]tribproto.Tribble, 
     status := tribproto.OK
     
     postUserId := "post-" + userId
-    tribbleIds := ts.storage.getList(postUserId)
+    tribbleIds := ts.ss.getList(postUserId)
     
     for _, tribbleId := range tribbleIds {
         t := &tribproto.Tribble{}
         t.Userid = userId
         postedStr := strings.Split(tribbleId, "-")[1]
         t.Posted, _ = strconv.ParseInt(postedStr, 10, 64)
-        t.Contents, _ = ts.storage.get(tribbleId)
+        t.Contents, _ = ts.ss.get(tribbleId)
         tribbles = append(tribbles, *t)
     }
     
@@ -225,7 +229,7 @@ func (ts *Tribserver) handleGetTribblesBySubscrip(userId string) {
     log.Printf("handleGetTribblesBySubscrip: userId %s", userId)
     var tribbles []tribproto.Tribble
     subscripKey := "subscrip-" + userId
-    subscrips := ts.storage.getList(subscripKey)
+    subscrips := ts.ss.getList(subscripKey)
     
     for _, targetId := range subscrips {
         targetTribbles, _ := ts.getTribblesByUserId(targetId)
@@ -275,13 +279,49 @@ var portnum *int = flag.Int("port", 9009, "port # to listen on")
 
 func main() {
 	flag.Parse()
+    if (*storageMasterNodePort == "") {
+        // Single node execution
+        *storageMasterNodePort = fmt.Sprint("localhost:%d", *portnum)
+        if (*numNodes == 0) {
+            *numNodes = 1
+            log.Println("Self-masterg. setting nodes to 1")
+        }
+    }
 	log.Printf("Server starting on port %d\n", *portnum);
-	ts := NewTribserver()
+    ss := storageserver.NewStorageserver(*storageMasterNodePort, *numNodes, *portnum, uint32(*nodeID))
+	ts := NewTribserver(ss)
 	rpc.Register(ts)
+    srpc := storagerpc.NewStorageRPC(ss)
+    rpc.Register(srpc)
 	rpc.HandleHTTP()
-	l, e := net.Listen("tcp", fmt.Sprintf(":%d", *portnum))
+	l, e := net.Listen("tcp", fmt.Sprintf(":%d", *portnum)
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
 	http.Serve(l, nil)
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
