@@ -10,7 +10,6 @@ package storagerpc
 import (
 	"storageproto"
 	"storageserver"
-	"os"
 )
 
 type StorageRPC struct {
@@ -21,26 +20,26 @@ func NewStorageRPC(ss *storageserver.Storageserver) *StorageRPC {
 	return &StorageRPC{ss}
 }
 
-func (srpc *StorageRPC) Get(args *storageproto.GetArgs, reply *storageproto.GetReply) os.Error {
+func (srpc *StorageRPC) Get(args *storageproto.GetArgs, reply *storageproto.GetReply) error {
 	return srpc.ss.GetRPC(args, reply)
 }
 
-func (srpc *StorageRPC) GetList(args *storageproto.GetArgs, reply *storageproto.GetListReply) os.Error {
+func (srpc *StorageRPC) GetList(args *storageproto.GetArgs, reply *storageproto.GetListReply) error {
 	return srpc.ss.GetListRPC(args, reply)
 }
 
-func (srpc *StorageRPC) Put(args *storageproto.PutArgs, reply *storageproto.PutReply) os.Error {
+func (srpc *StorageRPC) Put(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
 	return srpc.ss.PutRPC(args, reply)
 }
 
-func (srpc *StorageRPC) AppendToList(args *storageproto.PutArgs, reply *storageproto.PutReply) os.Error {
+func (srpc *StorageRPC) AppendToList(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
 	return srpc.ss.AppendToListRPC(args, reply)
 }
 
-func (srpc *StorageRPC) RemoveFromList(args *storageproto.PutArgs, reply *storageproto.PutReply) os.Error {
+func (srpc *StorageRPC) RemoveFromList(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
 	return srpc.ss.RemoveFromListRPC(args, reply)
 }
 
-func (srpc *StorageRPC) Register(args *storageproto.RegisterArgs, reply *storageproto.RegisterReply) os.Error {
+func (srpc *StorageRPC) Register(args *storageproto.RegisterArgs, reply *storageproto.RegisterReply) error {
 	return srpc.ss.RegisterRPC(args, reply)
 }

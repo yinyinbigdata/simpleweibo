@@ -12,6 +12,8 @@ import (
     "time"
     "strconv"
     "strings"
+    "storageserver"
+    "storagerpc"
 )
 
 type Tribserver struct {
@@ -55,15 +57,10 @@ func NewTribserver(ss *storageserver.Storageserver) *Tribserver {
 	return ts
 }
 
-var portnum *int = flag.Int("port", 9009, "port # to listen on")
-var storageMasterNodePort *string = flag.String("master", "", "Storage master node. Defaults to its own port.")
-var numNodes *int = flag.Int("N", 0, "Become the master. Specifies the number of nodes in the system, including the master.")
-var nodeID *uint = flag.Uint("id", 0, "The node ID to use for consistent hashing. Should be a 32 bit number.")
-
 
 func (ts *Tribserver) handleUserCreate(userId string) {
     userKey := "user-" + userId
-    ret := ts.ss.put(userKey, "exist")
+    ret := ts.ss.Put(userKey, "exist")
     ts.createUserReplyChan <- ret
 }
 
@@ -82,7 +79,7 @@ func (ts *Tribserver) CreateUser(args *tribproto.CreateUserArgs, reply *tribprot
 
 func (ts *Tribserver) CheckUserExist(userId string) bool {
     userKey := "user-" + userId
-    value, ret := ts.ss.get(userKey)
+    value, ret := ts.ss.Get(userKey)
     if ret == true && value == "exist" {
         return true
     }
@@ -99,7 +96,7 @@ func (ts *Tribserver) handleAddSubscrip(userId string, targetId string) {
     } else {
         subscripKey := "subscrip-" + userId
         log.Printf("handleAddSubscrip: appendToList subscripKey %s targetId %s", subscripKey, targetId)
-        ok := ts.storage.appendToList(subscripKey, targetId)
+        ok := ts.ss.AppendToList(subscripKey, targetId)
         if ok {
             ret = tribproto.OK
         }
@@ -124,7 +121,7 @@ func (ts *Tribserver) handleRemoveSubsrip(userId string, targetId string) {
         ret = tribproto.ENOSUCHTARGETUSER
     } else {
         subscripKey := "subscrip-" + userId
-        ok := ts.ss.removeFromList(subscripKey, targetId)
+        ok := ts.ss.RemoveFromList(subscripKey, targetId)
         if ok {
             ret = tribproto.OK
         }
@@ -147,7 +144,7 @@ func (ts *Tribserver) handleGetsubscrip(userId string) {
         ret.Status = tribproto.ENOSUCHUSER
     } else {
         subscripKey := "subscrip-" + userId
-        userIds := ts.ss.getList(subscripKey)
+        userIds, _ := ts.ss.GetList(subscripKey)
         ret.Userids = userIds
     }
     ts.getSubscripReplyChan <- ret
@@ -173,8 +170,8 @@ func (ts *Tribserver) handlePostTribble(userId string, content string) {
     
     userPostKey := "post-" + userId
     postId := userId + ":post-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-    ts.ss.put(postId, content)
-    ts.ss.appendToList(userPostKey, postId)
+    ts.ss.Put(postId, content)
+    ts.ss.AppendToList(userPostKey, postId)
     // FixMe:
     ts.postTribbleReplyChan <- ret
 }
@@ -193,14 +190,14 @@ func (ts *Tribserver) getTribblesByUserId(userId string)  ([]tribproto.Tribble, 
     status := tribproto.OK
     
     postUserId := "post-" + userId
-    tribbleIds := ts.ss.getList(postUserId)
+    tribbleIds, _ := ts.ss.GetList(postUserId)
     
     for _, tribbleId := range tribbleIds {
         t := &tribproto.Tribble{}
         t.Userid = userId
         postedStr := strings.Split(tribbleId, "-")[1]
         t.Posted, _ = strconv.ParseInt(postedStr, 10, 64)
-        t.Contents, _ = ts.ss.get(tribbleId)
+        t.Contents, _ = ts.ss.Get(tribbleId)
         tribbles = append(tribbles, *t)
     }
     
@@ -229,7 +226,7 @@ func (ts *Tribserver) handleGetTribblesBySubscrip(userId string) {
     log.Printf("handleGetTribblesBySubscrip: userId %s", userId)
     var tribbles []tribproto.Tribble
     subscripKey := "subscrip-" + userId
-    subscrips := ts.ss.getList(subscripKey)
+    subscrips, _ := ts.ss.GetList(subscripKey)
     
     for _, targetId := range subscrips {
         targetTribbles, _ := ts.getTribblesByUserId(targetId)
@@ -276,6 +273,10 @@ func (ts *Tribserver) loop() {
 }
 
 var portnum *int = flag.Int("port", 9009, "port # to listen on")
+var storageMasterNodePort *string = flag.String("master", "", "Storage master node. Defaults to its own port.")
+var numNodes *int = flag.Int("N", 0, "Become the master. Specifies the number of nodes in the system, including the master.")
+var nodeID *uint = flag.Uint("id", 0, "The node ID to use for consistent hashing. Should be a 32 bit number.")
+
 
 func main() {
 	flag.Parse()
@@ -294,34 +295,9 @@ func main() {
     srpc := storagerpc.NewStorageRPC(ss)
     rpc.Register(srpc)
 	rpc.HandleHTTP()
-	l, e := net.Listen("tcp", fmt.Sprintf(":%d", *portnum)
+	l, e := net.Listen("tcp", fmt.Sprintf(":%d", *portnum))
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
 	http.Serve(l, nil)
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
