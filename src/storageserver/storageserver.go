@@ -24,9 +24,6 @@ type Storageserver struct {
 }
 
 func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *Storageserver {
-	if (numnodes > 0) {
-		// I'm the master!  That's exciting!
-	}
 	ss := &Storageserver{
         master : master,
         numnodes : numnodes,
@@ -34,6 +31,15 @@ func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *
         nodeid : nodeid,
         kv : make(map[string]string),
         kvl : make(map[string][]string),
+        peers : make(map[uint32]*peer),
+        peerSortedKeys : make([]uint32, 0),
+	}
+    if (numnodes == 1) {
+        // Self-masterg
+        self := NewPeer(nodeid, "127.0.0.1", portnum)
+        ss.addPeer(self)
+    } else if (numnodes > 1) {
+		// I'm the master!  That's exciting!
 	}
 	return ss
 }
@@ -146,6 +152,9 @@ func (ss *Storageserver) addPeer(p *peer) {
 // scan peer's hashkey(nodeid) from small to big until find the bigger nearest.
 var hash = crc32.ChecksumIEEE
 func (ss *Storageserver) findPeer(key string) *peer {
+    if len(ss.peerSortedKeys) == 0 {
+        return nil
+    }
     hashkey := uint32(hash([]byte(key)))
     
     for _, nodekey := range ss.peerSortedKeys {

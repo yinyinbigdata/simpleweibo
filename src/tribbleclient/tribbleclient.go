@@ -44,6 +44,7 @@ func (tc *Tribbleclient) GetSubscriptions(Userid string) ([]string, int, error) 
 	if (err != nil) {
 		return nil, 0, err
 	}
+    log.Printf("Tribbleclient:GetSubscriptions:reply.Status: %d", reply.Status)
 	return reply.Userids, reply.Status, nil
 }
 

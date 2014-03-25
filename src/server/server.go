@@ -68,6 +68,7 @@ func (ts *Tribserver) CreateUser(args *tribproto.CreateUserArgs, reply *tribprot
 	// Set responses by modifying the reply structure, like:
 	// reply.Status = tribproto.EEXISTS
 	// Note that OK is the default;  you don't need to set it explicitly
+    log.Printf("CreateUser  call")
     ts.createUserChan <- args.Userid
     ret := <- ts.createUserReplyChan
     if ret == false {
@@ -142,6 +143,7 @@ func (ts *Tribserver) handleGetsubscrip(userId string) {
     ret := &tribproto.GetSubscriptionsReply{}
     if !ts.CheckUserExist(userId) {
         ret.Status = tribproto.ENOSUCHUSER
+        log.Printf("handleGetsubscrip: no such user, ret.Status %d", ret.Status)
     } else {
         subscripKey := "subscrip-" + userId
         userIds, _ := ts.ss.GetList(subscripKey)
@@ -151,10 +153,11 @@ func (ts *Tribserver) handleGetsubscrip(userId string) {
 }
 
 func (ts *Tribserver) GetSubscriptions(args *tribproto.GetSubscriptionsArgs, reply *tribproto.GetSubscriptionsReply) error {
-	log.Printf("GetSubscriptions call")
     ts.getSubscripChan <- args
-    reply = <- ts.getSubscripReplyChan
-    log.Printf("GetSubscriptions end")
+    // if not use ret, reply status may not right.
+    ret := <- ts.getSubscripReplyChan
+    reply.Userids = ret.Userids
+    reply.Status = ret.Status
     return nil
 }
 
@@ -290,6 +293,7 @@ func main() {
     }
 	log.Printf("Server starting on port %d\n", *portnum);
     ss := storageserver.NewStorageserver(*storageMasterNodePort, *numNodes, *portnum, uint32(*nodeID))
+    log.Printf("after ss created\n", *portnum);
 	ts := NewTribserver(ss)
 	rpc.Register(ts)
     srpc := storagerpc.NewStorageRPC(ss)

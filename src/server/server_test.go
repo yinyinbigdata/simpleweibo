@@ -26,7 +26,7 @@ type tribblerZoo struct {
 }
 
 func startOneServer(port int) (*os.Process, error) {
-	return os.StartProcess("bin/server", []string{"bin/server"},  &os.ProcAttr{})
+	return os.StartProcess("../../server", []string{"../../server"},  &os.ProcAttr{})
 }
 
 func startServers(numServers int) *tribblerZoo {
@@ -56,17 +56,17 @@ func killServers(zoo *tribblerZoo) {
 }
 
 func startServer(t *testing.T, port int) *runjob.Job {
-	runjob.Vlogf(1, "Starting server")
+	runjob.Vlogf(1, "Starting server\n")
 	logfile, err := os.OpenFile("server.log", os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
 	if (err != nil) {
 		log.Fatal("Could not open log file")
 	}
 	portstr := fmt.Sprint("-port=", port)
-	server := runjob.NewJob("../bin/server", 0.0, logfile, portstr)
+	server := runjob.NewJob("server", 0.0, logfile, portstr)
 	if (server == nil) {
 		t.Fatalf("Could not start server!")
 	} else {
-		runjob.Delay(0.5)
+		runjob.Delay(2)
 		if (!server.Running()) {
 			t.Fatalf("Could not start server!")
 		}
@@ -76,7 +76,7 @@ func startServer(t *testing.T, port int) *runjob.Job {
 
 func killServer(server *runjob.Job) {
 	if (server != nil) {
-		runjob.Vlogf(1, "Killing server")
+		runjob.Vlogf(1, "Killing server\n")
 		server.Kill()
 		for (server.Running()) {
 			runjob.Delay(0.1)
@@ -211,6 +211,7 @@ func TestEvil(t *testing.T) {
 
 	subs, s, e := cli1.GetSubscriptions("dga")
 	if (e != nil || s != tribproto.ENOSUCHUSER || len(subs) != 0) {
+        t.Fatalf("testEvil: e %s, s %s, len(subs) %d", e, s, len(subs))
 		t.Fatalf("non-user GetSubscriptions did not fail properly")
 	}
 	
