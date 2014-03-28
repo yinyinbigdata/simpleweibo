@@ -283,7 +283,7 @@ var nodeID *uint = flag.Uint("id", 0, "The node ID to use for consistent hashing
 
 func main() {
 	flag.Parse()
-    if (*storageMasterNodePort == "") {
+    if (*storageMasterNodePort == "" && *numNodes == 0) {
         // Single node execution
         *storageMasterNodePort = fmt.Sprint("localhost:%d", *portnum)
         if (*numNodes == 0) {
