@@ -1,15 +1,15 @@
-package server
+package main
 
 import (
 	"testing"
-	_ "rpc"
+	_ "net/rpc"
 	_ "net"
 	"tribproto"
 	"tribbleclient"
 	"os"
 	"runjob"
 	"fmt"
-	"rand"
+	"math/rand"
 	"time"
 	"runtime"
 )
@@ -35,7 +35,7 @@ func startServerGeneral(t *testing.T, port int, master_port int, lognum int, num
 	} else {
 		configstr = fmt.Sprintf("-master=localhost:%d", master_port)
 	}
-	server := runjob.NewJob("../bin/server", 0.0, logfile, portstr, configstr)
+	server := runjob.NewJob("server", 0.0, logfile, portstr, configstr)
 	if server == nil {
 		t.Fatalf("Could not start server!")
 	}
@@ -45,7 +45,7 @@ func startServerGeneral(t *testing.T, port int, master_port int, lognum int, num
 func startServer(t *testing.T, port int) *runjob.Job {
 	server := startServerGeneral(t, port, port, 0, 1) 
 	if (server != nil) {
-		runjob.Delay(0.5)
+		runjob.Delay(2)
 		if (!server.Running()) {
 			t.Fatalf("Could not start server!")
 		}
@@ -90,7 +90,7 @@ func killServer(server *runjob.Job) {
 }
 
 func randportno() int {
-	rand.Seed(time.Nanoseconds())
+	rand.Seed(time.Now().UnixNano())
 	randsize := 60000 - START_PORT_NUMBER
 	return (START_PORT_NUMBER + (rand.Int() % randsize))
 }
@@ -169,7 +169,7 @@ func createSlam(t *testing.T, client *tribbleclient.Tribbleclient, c *chan int) 
 	}
 }
 
-func createUsers(t *testing.T, c *tribbleclient.Tribbleclient, users []string) os.Error {
+func createUsers(t *testing.T, c *tribbleclient.Tribbleclient, users []string) error {
 	for _, u := range users {
 		status, err := c.CreateUser(u)
 		if (status != tribproto.OK || err != nil) {
