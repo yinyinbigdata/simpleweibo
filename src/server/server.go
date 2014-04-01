@@ -14,6 +14,7 @@ import (
     "strings"
     "storageserver"
     "storagerpc"
+    "math/rand"
 )
 
 type Tribserver struct {
@@ -280,6 +281,10 @@ var storageMasterNodePort *string = flag.String("master", "", "Storage master no
 var numNodes *int = flag.Int("N", 0, "Become the master. Specifies the number of nodes in the system, including the master.")
 var nodeID *uint = flag.Uint("id", 0, "The node ID to use for consistent hashing. Should be a 32 bit number.")
 
+func randnodeid() uint {
+	rand.Seed(time.Now().UnixNano())
+    return uint(rand.Int())
+}
 
 func main() {
 	flag.Parse()
@@ -292,6 +297,9 @@ func main() {
         }
     }
 	log.Printf("Server starting on port %d\n", *portnum);
+    if *nodeID == 0 {
+        *nodeID = randnodeid()
+    }
     ss := storageserver.NewStorageserver(*storageMasterNodePort, *numNodes, *portnum, uint32(*nodeID))
     log.Printf("after ss created\n", *portnum);
 	ts := NewTribserver(ss)
