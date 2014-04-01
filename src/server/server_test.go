@@ -12,6 +12,7 @@ import (
 	"math/rand"
 	"time"
 	"runtime"
+    "log"
 )
 
 const (
@@ -287,6 +288,9 @@ func testNServers(t *testing.T, num_servers int) {
 	portbase := randportno()
 	servers := startNServers(t, portbase, num_servers)
 	defer killServers(servers)
+    // Fixed me: node take 2 seconds to regist ...
+    log.Printf("sleep 10 seconds")
+    runjob.Delay(10)
 	clients := make([]*tribbleclient.Tribbleclient, num_servers)
 	for i := 0; i < num_servers; i++ {
 		clients[i] = getClient(t, portbase+i)
@@ -302,9 +306,10 @@ func testNServers(t *testing.T, num_servers int) {
 		t.Fatalf("Could not create users")
 	}
 	clients[0].AddSubscription("dga", "bryant")
-	
+
 	for i := 0; i < num_servers; i++ {
 		subs, _, _ := clients[i].GetSubscriptions("dga")
+        log.Printf("client %d get subs len %d ", i, len(subs))
 		if (len(subs) != 1 || subs[0] != "bryant") {
 			t.Fatalf("TwoServer subscription test failed")
 		}
@@ -316,5 +321,5 @@ func TestTwoServers(t *testing.T) {
 }
 
 func TestSixServers(t *testing.T) {
-	testNServers(t, 6)
+    testNServers(t, 6)
 }
