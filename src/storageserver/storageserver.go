@@ -104,6 +104,9 @@ func NewPeer(nodeid uint32, address string, portnum int) *peer {
     return p
 }
 
+
+
+
 // You might define here the functions that the locally-linked application
 // logic can use to call things like Get, GetList, Put, etc.
 // OR, you can have them access the local storage node
@@ -690,6 +693,7 @@ func (ss *Storageserver) GetListRPC(args *storageproto.GetArgs, reply *storagepr
 func (ss *Storageserver) PutRPC(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
     key := args.Key
     value := args.Value
+    log.Printf("Storageserver.PutRPC: call key %s, value %s", key, value)
     ret := ss.localPut(key, value)
     if (ret == true) {
         reply.Status = storageproto.OK
