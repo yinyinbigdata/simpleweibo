@@ -27,6 +27,15 @@ type Storageserver struct {
     ready bool
     registerRequestChan chan *storageproto.RegisterArgs
     registerReplyChan chan *storageproto.RegisterReply
+    
+    hot_kv map[string]string
+    hot_kvl map[string][]string
+    // record query timestamp, last time before cache
+    hot_query_timestamp map[string]int
+    // lease time get from peer.
+    // when now - hot_query_timestamp < hot_lease, then
+    // the kv value is valid in time
+    hot_lease map[string]int
 }
 
 func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *Storageserver {
@@ -40,6 +49,10 @@ func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *
         kvl : make(map[string][]string),
         peers : make(map[uint32]*peer),
         peerSortedKeys : make([]uint32, 0),
+        hot_kv : make(map[string]string),
+        hot_kvl : make(map[string][]string),
+        hot_query_timestamp : make(map[string]int),
+        hot_lease : make(map[string]int), 
 	}
     
     ss.registerRequestChan = make(chan *storageproto.RegisterArgs, 0)
@@ -90,9 +103,6 @@ func NewPeer(nodeid uint32, address string, portnum int) *peer {
     }
     return p
 }
-
-
-
 
 // You might define here the functions that the locally-linked application
 // logic can use to call things like Get, GetList, Put, etc.
@@ -212,27 +222,33 @@ func (ss *Storageserver) findPeer(key string) *peer {
     return ss.peers[firstnode]
 }
 
-func (ss *Storageserver) peerGet(p *peer, key string) (string, bool) {
+func (ss *Storageserver) peerGet(p *peer, key string, wantLease bool) (string, bool, storageproto.LeaseStruct) {
     var ret bool
     if (p.rpcClient == nil) {
         portstr := fmt.Sprintf("%d", p.portnum)
         client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
         if (err != nil) {
             log.Fatal("could not connect to server")
-            return "", false
+            return "", false, storageproto.LeaseStruct{}
         }
         p.rpcClient = client
     }
     
     getargs := &storageproto.GetArgs{
         Key : key,
+        WantLease : wantLease,
     }
+    getargs.LeaseClient = storageproto.Client{
+        HostPort : strconv.Itoa(ss.portnum),
+        NodeID : ss.nodeid,
+    }
+    
     getreply := &storageproto.GetReply{}
     
     err := p.rpcClient.Call("StorageRPC.Get", getargs, getreply)
     if (err != nil) {
         log.Fatal("peerGet: rpcclient Get Call failed on node %d", p.nodeid)
-        return "", false
+        return "", false, storageproto.LeaseStruct{}
     }
 
     value := getreply.Value
@@ -241,7 +257,7 @@ func (ss *Storageserver) peerGet(p *peer, key string) (string, bool) {
     } else {
         ret = false
     }
-    return value, ret
+    return value, ret, getreply.Lease
 }
 
 func (ss *Storageserver) peerPut(p *peer, key string, value string) bool {
@@ -365,18 +381,70 @@ func (ss *Storageserver) peerRemoveFromList(p *peer, key string, value string) b
     return ret
 }
 
+// call when the key is not on cache or expire
+// update the hot_query_timestamp, determine wantLease
+// check if the query sent in the last 5 seconds
+func (ss *Storageserver) checkHot(key string) bool {
+    now := time.Now().Second()
+    old, ok := ss.hot_query_timestamp[key]
+
+    if ok == false {
+        ss.hot_query_timestamp[key] = now
+        return false
+    }
+    log.Printf("checkHot: old %d, now %d", old, now)
+    if now - old < 5 {
+        ss.hot_query_timestamp[key] = now
+        log.Printf("checkHot: key %s hot, try to hotcache it\n", key)
+        return true
+    }
+    ss.hot_query_timestamp[key] = now
+    return false
+}
+
+func (ss *Storageserver) HotCacheGet(key string) (value string, status bool) {
+    // cache on hot
+    if value, ok := ss.hot_kv[key]; ok {
+        // it is valid, just return
+        if time.Now().Second() - ss.hot_query_timestamp[key] < ss.hot_lease[key] {
+            log.Printf("HotCacheGet key %s, value %s\n", key, value)
+            return value, ok
+        }
+        // not valid, expire it
+        delete(ss.hot_kv, key)
+        ss.hot_query_timestamp[key] = time.Now().Second()
+        return "", false
+    }
+    return "", false
+}
 
 // wrapper local and peer operations.
 func (ss *Storageserver) Get(key string) (string, bool) {
+    log.Printf("Get: ")
     // dht lookup
     p := ss.findPeer(key)
     // local
     if (p.nodeid == ss.nodeid) {
         return ss.localGet(key)
-    } else {
-        // peer
-        return ss.peerGet(p, key)
     }
+    
+    // get from cache
+    cvalue, cstatus := ss.HotCacheGet(key)
+    if cstatus {
+        return cvalue, cstatus
+    }
+    
+    // not on cache, need cache?
+    wantLease := ss.checkHot(key)
+    
+    value, status, lease := ss.peerGet(p, key, wantLease)
+    
+    if wantLease && lease.Granted {
+        ss.hot_kv[key] = value
+        ss.hot_lease[key] = lease.ValidSeconds
+    }
+    
+    return value, status
 }
 
 func (ss *Storageserver) Put(key string, value string) bool {
@@ -559,6 +627,10 @@ func (ss *Storageserver) GetRPC(args *storageproto.GetArgs, reply *storageproto.
     if (ret == true) {
         reply.Value = value
         reply.Status = storageproto.OK
+        reply.Lease = storageproto.LeaseStruct{
+            Granted : true,
+            ValidSeconds : 5,
+        }
     } else {
         reply.Status = storageproto.EKEYNOTFOUND
     }

@@ -323,3 +323,53 @@ func TestTwoServers(t *testing.T) {
 func TestSixServers(t *testing.T) {
     testNServers(t, 6)
 }
+
+func TestCache(t *testing.T) {
+    num_servers := 6
+	portbase := randportno()
+	servers := startNServers(t, portbase, num_servers)
+	defer killServers(servers)
+    // Fixed me: node take 2 seconds to regist ...
+    log.Printf("sleep 10 seconds")
+    runjob.Delay(10)
+	clients := make([]*tribbleclient.Tribbleclient, num_servers)
+	for i := 0; i < num_servers; i++ {
+		clients[i] = getClient(t, portbase+i)
+		if (clients[i] == nil) {
+			t.Fatalf("Could not create client ", i)
+		}
+		defer clients[i].Close()
+	}
+
+	users := []string{"dga", "bryant"}
+	err := createUsers(t, clients[0], users)
+	if (err != nil) {
+		t.Fatalf("Could not create users")
+	}
+	clients[0].AddSubscription("dga", "bryant")
+
+	for i := 0; i < num_servers; i++ {
+		subs, _, _ := clients[i].GetSubscriptions("dga")
+        log.Printf("client %d get subs len %d ", i, len(subs))
+		if (len(subs) != 1 || subs[0] != "bryant") {
+			t.Fatalf("TwoServer subscription test failed")
+		}
+	}
+    // test hot cache
+    // get it in 5 seconds, so it will put in hotcache
+	for i := 0; i < num_servers; i++ {
+		subs, _, _ := clients[i].GetSubscriptions("dga")
+        log.Printf("client %d get subs len %d ", i, len(subs))
+		if (len(subs) != 1 || subs[0] != "bryant") {
+			t.Fatalf("TwoServer subscription test failed")
+		}
+	}
+    // get it again, it will return from hotcache
+	for i := 0; i < num_servers; i++ {
+		subs, _, _ := clients[i].GetSubscriptions("dga")
+        log.Printf("client %d get subs len %d ", i, len(subs))
+		if (len(subs) != 1 || subs[0] != "bryant") {
+			t.Fatalf("TwoServer subscription test failed")
+		}
+	}
+}
