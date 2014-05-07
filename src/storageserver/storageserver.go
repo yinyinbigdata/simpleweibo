@@ -13,6 +13,18 @@ import (
     "strconv"
 )
 
+const (
+    QUERY_COUNT_SECONDS = 5 // Request lease if this is the 3rd+
+    QUERY_COUNT_THRESH = 3  // query in the last 5 seconds
+    LEASE_SECONDS = 5       // Leases are valid for 5 seconds
+    LEASE_GUARD_SECONDS = 1 // Servers add a short guard time
+)
+
+type LeaseRequestRecord struct {
+    Key string
+    LeaseClient storageproto.Client
+    LeaseBeginTime  int
+}
 type Storageserver struct {
     master string
     ismaster bool
@@ -36,6 +48,12 @@ type Storageserver struct {
     // when now - hot_query_timestamp < hot_lease, then
     // the kv value is valid in time
     hot_lease map[string]int
+
+    leaselock sync.RWMutex
+    // store all wantlease request
+    leaseRequestRecords map[string][]*LeaseRequestRecord
+    // when key in change progress, not allow lease
+    leaseNotAllow map[string]bool
 }
 
 func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *Storageserver {
@@ -53,6 +71,8 @@ func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *
         hot_kvl : make(map[string][]string),
         hot_query_timestamp : make(map[string]int),
         hot_lease : make(map[string]int), 
+        leaseRequestRecords : make(map[string][]*LeaseRequestRecord),
+        leaseNotAllow : make(map[string]bool),
 	}
     
     ss.registerRequestChan = make(chan *storageproto.RegisterArgs, 0)
@@ -167,6 +187,26 @@ func (ss *Storageserver) localRemoveFromList(key string, value string) bool {
     }
     ss.kvl[key] = l
     return false
+}
+
+// Lease 
+
+// the owner of key/value ask we to revokelease.
+// here remove the key from hot_kv or hot_kvl
+// need update hot_query_timestamp hot_lease?
+func (ss *Storageserver) revokeLease(key string) bool {
+    if _, e := ss.hot_kv[key]; e {
+        delete(ss.hot_kv, key)
+        return true
+    }
+    
+    if _, e := ss.hot_kvl[key]; e {
+        delete(ss.hot_kvl, key)
+        return true
+    }
+    
+    // we don't hot cache it, just return true
+    return true
 }
 
 // peer 
@@ -656,20 +696,42 @@ func (ss *Storageserver) RegisterRPC(args *storageproto.RegisterArgs, reply *sto
     return nil
 }
 
+func (ss *Storageserver) RecordWantLeaseRequest(args *storageproto.GetArgs) error {
+    // add it to leaseRequestRecords
+    now := time.Now().Second()
+    leaseRequest := &LeaseRequestRecord {
+        Key : args.Key,
+        LeaseClient : args.LeaseClient,
+        LeaseBeginTime : now,
+    }
+    // TODO: check wether records exist
+    key := args.Key
+    ss.leaseRequestRecords[key] = append(ss.leaseRequestRecords[key], leaseRequest)
+    return nil
+}
+
 func (ss *Storageserver) GetRPC(args *storageproto.GetArgs, reply *storageproto.GetReply) error {
 	// localGet(key string) (string, bool)
     key := args.Key
     value, ret := ss.localGet(key)
-    if (ret == true) {
+    if ret == true {
         reply.Value = value
         reply.Status = storageproto.OK
-        reply.Lease = storageproto.LeaseStruct{
-            Granted : true,
-            ValidSeconds : 5,
-        }
     } else {
         reply.Status = storageproto.EKEYNOTFOUND
     }
+    
+    // lease
+    if !args.WantLease {
+        return nil
+    } 
+    
+    reply.Lease = storageproto.LeaseStruct{
+        Granted : true,
+        ValidSeconds : LEASE_SECONDS,
+    }
+    ss.RecordWantLeaseRequest(args)
+    
     return nil
 }
 
@@ -677,16 +739,24 @@ func (ss *Storageserver) GetListRPC(args *storageproto.GetArgs, reply *storagepr
     key := args.Key
     value, status := ss.localGetList(key)
     // fixed me
-    if (status == true) {
+    if status == true {
         reply.Value = value
         reply.Status = storageproto.OK
-        reply.Lease = storageproto.LeaseStruct{
-            Granted : true,
-            ValidSeconds : 5,
-        }
     } else {
         reply.Status = storageproto.EKEYNOTFOUND
     }
+    
+    // lease
+    if !args.WantLease {
+        return nil
+    } 
+    
+    reply.Lease = storageproto.LeaseStruct{
+        Granted : true,
+        ValidSeconds : LEASE_SECONDS,
+    }
+    ss.RecordWantLeaseRequest(args)
+    
     return nil
 }
 
@@ -695,7 +765,7 @@ func (ss *Storageserver) PutRPC(args *storageproto.PutArgs, reply *storageproto.
     value := args.Value
     log.Printf("Storageserver.PutRPC: call key %s, value %s", key, value)
     ret := ss.localPut(key, value)
-    if (ret == true) {
+    if ret == true {
         reply.Status = storageproto.OK
     } else {
         reply.Status = storageproto.EPUTFAILED
@@ -707,7 +777,7 @@ func (ss *Storageserver) AppendToListRPC(args *storageproto.PutArgs, reply *stor
     key := args.Key
     value := args.Value
     ret := ss.localAppendToList(key, value)
-    if (ret == true) {
+    if ret == true {
         reply.Status = storageproto.OK
     } else {
         reply.Status = storageproto.EITEMEXISTS
@@ -719,10 +789,21 @@ func (ss *Storageserver) RemoveFromListRPC(args *storageproto.PutArgs, reply *st
     key := args.Key
     value := args.Value
     ret := ss.localRemoveFromList(key, value)
-    if (ret == true) {
+    if ret == true {
         reply.Status = storageproto.OK
     } else {
         reply.Status = storageproto.EITEMNOTFOUND
+    }
+    return nil
+}
+
+func (ss *Storageserver) RevokeLeaseRPC(args *storageproto.RevokeLeaseArgs, reply *storageproto.RevokeLeaseReply) error {
+    key := args.Key
+    ret := ss.revokeLease(key)
+    if ret == true {
+        reply.Status = storageproto.OK
+    } else {
+        reply.Status = storageproto.EREVOKEFAILED
     }
     return nil
 }

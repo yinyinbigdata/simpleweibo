@@ -7,6 +7,7 @@ const (
 	EITEMNOTFOUND // lists
 	EPUTFAILED
 	EITEMEXISTS // lists, duplicate put
+    EREVOKEFAILED
 )
 
 type LeaseStruct struct {
