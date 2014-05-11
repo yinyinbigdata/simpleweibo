@@ -284,15 +284,7 @@ func (p *peer) initRPCClient() error{
 
 func (ss *Storageserver) peerGet(p *peer, key string, wantLease bool) (string, bool, storageproto.LeaseStruct) {
     var ret bool
-    if (p.rpcClient == nil) {
-        portstr := fmt.Sprintf("%d", p.portnum)
-        client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
-        if (err != nil) {
-            log.Fatal("could not connect to server")
-            return "", false, storageproto.LeaseStruct{}
-        }
-        p.rpcClient = client
-    }
+    p.initRPCClient()
     
     getargs := &storageproto.GetArgs{
         Key : key,
@@ -322,16 +314,7 @@ func (ss *Storageserver) peerGet(p *peer, key string, wantLease bool) (string, b
 
 func (ss *Storageserver) peerPut(p *peer, key string, value string) bool {
     var ret bool
-    if (p.rpcClient == nil) {
-        portstr := fmt.Sprintf("%d", p.portnum)
-        log.Printf("peerPut: address %s, port %s", p.address, portstr)
-        client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
-        if (err != nil) {
-            log.Fatal("could not connect to server")
-            return false
-        }
-        p.rpcClient = client
-    }
+    p.initRPCClient()
     putargs := &storageproto.PutArgs{
         Key : key,
         Value : value,
@@ -354,15 +337,7 @@ func (ss *Storageserver) peerPut(p *peer, key string, value string) bool {
 func (ss *Storageserver) peerGetList(p *peer, key string, wantLease bool) ([]string, bool, storageproto.LeaseStruct) {
     var ret bool
     var nillease storageproto.LeaseStruct
-    if (p.rpcClient == nil) {
-        portstr := fmt.Sprintf("%d", p.portnum)
-        client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
-        if (err != nil) {
-            log.Fatal("could not connect to server")
-            return nil, false, nillease
-        }
-        p.rpcClient = client
-    }
+    p.initRPCClient()
     getargs := &storageproto.GetArgs{
         Key : key,
         WantLease : wantLease,
@@ -390,15 +365,7 @@ func (ss *Storageserver) peerGetList(p *peer, key string, wantLease bool) ([]str
 
 func (ss *Storageserver) peerAppendToList(p *peer, key string, value string) bool {
     var ret bool
-    if (p.rpcClient == nil) {
-        portstr := fmt.Sprintf("%d", p.portnum)
-        client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
-        if (err != nil) {
-            log.Fatal("could not connect to server")
-            return false
-        }
-        p.rpcClient = client
-    }
+    p.initRPCClient()
     putargs := &storageproto.PutArgs{
         Key : key,
         Value : value,
@@ -420,15 +387,7 @@ func (ss *Storageserver) peerAppendToList(p *peer, key string, value string) boo
 
 func (ss *Storageserver) peerRemoveFromList(p *peer, key string, value string) bool {
     var ret bool
-    if (p.rpcClient == nil) {
-        portstr := fmt.Sprintf("%d", p.portnum)
-        client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
-        if (err != nil) {
-            log.Fatal("could not connect to server")
-            return false
-        }
-        p.rpcClient = client
-    }
+    p.initRPCClient()
     putargs := &storageproto.PutArgs{
         Key : key,
         Value : value,
