@@ -20,7 +20,7 @@ const (
     LEASE_GUARD_SECONDS = 1 // Servers add a short guard time
 )
 
-type LeaseRequestRecord struct {
+type LeaseHolder struct {
     Key string
     LeaseClient storageproto.Client
     LeaseBeginTime  int
@@ -51,9 +51,9 @@ type Storageserver struct {
 
     leaselock sync.RWMutex
     // store all wantlease request
-    leaseRequestRecords map[string][]*LeaseRequestRecord
+    leaseHolders map[string][]*LeaseHolder
     // when key in change progress, not allow lease
-    leaseNotAllow map[string]bool
+    leaseNotGrant map[string]bool
 }
 
 func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *Storageserver {
@@ -71,8 +71,8 @@ func NewStorageserver(master string, numnodes int, portnum int, nodeid uint32) *
         hot_kvl : make(map[string][]string),
         hot_query_timestamp : make(map[string]int),
         hot_lease : make(map[string]int), 
-        leaseRequestRecords : make(map[string][]*LeaseRequestRecord),
-        leaseNotAllow : make(map[string]bool),
+        leaseHolders : make(map[string][]*LeaseHolder),
+        leaseNotGrant : make(map[string]bool),
 	}
     
     ss.registerRequestChan = make(chan *storageproto.RegisterArgs, 0)
@@ -232,6 +232,10 @@ func (ss *Storageserver) addPeer(p *peer) {
     ss.peers[p.nodeid] = p
 }
 
+func (ss* Storageserver) getPeerBynodeid(nodeid uint32) *peer {
+    return ss.peers[nodeid]
+}
+
 // if peer is already add, return true
 func (ss *Storageserver) checkPeerExist(p *peer) bool {
     if ss.peers[p.nodeid] != nil {
@@ -263,6 +267,19 @@ func (ss *Storageserver) findPeer(key string) *peer {
     firstnode := ss.peerSortedKeys[0]
     log.Printf("findPeer: get peer: nodeid %d, port %d\n", ss.peers[firstnode].nodeid, ss.peers[firstnode].portnum)
     return ss.peers[firstnode]
+}
+
+func (p *peer) initRPCClient() error{
+    if (p.rpcClient == nil) {
+        portstr := fmt.Sprintf("%d", p.portnum)
+        client, err := rpc.DialHTTP("tcp", net.JoinHostPort(p.address, portstr))
+        if (err != nil) {
+            log.Fatal("could not connect to server")
+            return err
+        }
+        p.rpcClient = client
+    }
+    return nil
 }
 
 func (ss *Storageserver) peerGet(p *peer, key string, wantLease bool) (string, bool, storageproto.LeaseStruct) {
@@ -351,6 +368,11 @@ func (ss *Storageserver) peerGetList(p *peer, key string, wantLease bool) ([]str
         WantLease : wantLease,
     }
     getlistreply := &storageproto.GetListReply{}
+    
+    getargs.LeaseClient = storageproto.Client{
+        HostPort : strconv.Itoa(ss.portnum),
+        NodeID : ss.nodeid,
+    }
     
     err := p.rpcClient.Call("StorageRPC.GetList", getargs, getlistreply)
     if (err != nil) {
@@ -492,16 +514,85 @@ func (ss *Storageserver) Get(key string) (string, bool) {
     return value, status
 }
 
+func (ss *Storageserver)sendRevokeLeaseReq(p *peer, key string, retchan chan bool) {
+    
+    revokeRequest := &storageproto.RevokeLeaseArgs{
+        Key : key,
+    }
+    revokeReply := storageproto.RevokeLeaseReply{}
+    
+    p.initRPCClient()
+    
+    err := p.rpcClient.Call("StorageRPC.RevokeLease", revokeRequest, &revokeReply)
+    if err != nil {
+        log.Printf("sendRevokeLeaseReq: RevokeLease call failed")
+        retchan <- false
+        return
+    }
+    if revokeReply.Status != storageproto.OK {
+        log.Printf("sendRevokeLeaseReq: RevokeLease call failed, status not ok")
+        retchan <- false
+    } else {
+        log.Printf("sendRevokeLeaseReq: RevokeLease call OK")
+        retchan <- true
+    }
+
+    return
+}
+
+func (ss *Storageserver) SendRevokeLeaseBlocking(key string) {
+    var retchan chan bool
+    var nodenum int
+    retchan = make(chan bool)
+    log.Printf("SendRevokeLeaseBlocking: key %s", key)
+    for _, leaseholder := range ss.leaseHolders[key] {
+        log.Printf("SendRevokeLeaseBlocking: travel leaseholed nodeid %d", leaseholder.LeaseClient.NodeID)
+         peer := ss.getPeerBynodeid(leaseholder.LeaseClient.NodeID)
+         go ss.sendRevokeLeaseReq(peer, key, retchan)
+         nodenum++
+    }
+    if nodenum == 0 {
+        log.Printf("SendRevokeLeaseBlocking: no leaseholders\n")
+        return
+    }
+    oknum := 0
+    leaseTimeout := time.Tick(LEASE_SECONDS + LEASE_GUARD_SECONDS)
+    for {
+        select {
+        case ret := <- retchan:
+            if ret == true {
+                oknum++
+            }
+            if oknum == nodenum {
+                // all peer had revoke
+                log.Printf("SendRevokeLeaseBlocking: all peer had revoke, key %s", key)
+                //break
+                return
+            }
+        case <- leaseTimeout:
+            // timeout
+            // break
+            return
+        }
+    }
+}
+
 func (ss *Storageserver) Put(key string, value string) bool {
+    log.Printf("Put key: %s, value: %s", key, value)
     // dht lookup
     p := ss.findPeer(key)
-    // local
-    if (p.nodeid == ss.nodeid) {
-        return ss.localPut(key, value)
-    } else {
-        // peer
+
+    // peer
+    if (p.nodeid != ss.nodeid) {
         return ss.peerPut(p, key, value)
     }
+    
+    // local
+    ss.leaseNotGrant[key] = true
+    ss.SendRevokeLeaseBlocking(key)
+    ret := ss.localPut(key, value)
+    ss.leaseNotGrant[key] = false
+    return ret
 }
 
 func (ss *Storageserver) HotCacheGetList(key string) (vl []string, status bool) {
@@ -696,17 +787,18 @@ func (ss *Storageserver) RegisterRPC(args *storageproto.RegisterArgs, reply *sto
     return nil
 }
 
-func (ss *Storageserver) RecordWantLeaseRequest(args *storageproto.GetArgs) error {
+func (ss *Storageserver) RecordLeaseHolder(args *storageproto.GetArgs) error {
     // add it to leaseRequestRecords
     now := time.Now().Second()
-    leaseRequest := &LeaseRequestRecord {
+    leaseholder := &LeaseHolder {
         Key : args.Key,
         LeaseClient : args.LeaseClient,
         LeaseBeginTime : now,
     }
     // TODO: check wether records exist
     key := args.Key
-    ss.leaseRequestRecords[key] = append(ss.leaseRequestRecords[key], leaseRequest)
+    ss.leaseHolders[key] = append(ss.leaseHolders[key], leaseholder)
+    log.Printf("RecordLeaseHolder: add key %s, cliend id %d", key, args.LeaseClient.NodeID)
     return nil
 }
 
@@ -726,11 +818,15 @@ func (ss *Storageserver) GetRPC(args *storageproto.GetArgs, reply *storageproto.
         return nil
     } 
     
+    if ss.leaseNotGrant[key] {
+        return nil
+    }
+    
     reply.Lease = storageproto.LeaseStruct{
         Granted : true,
         ValidSeconds : LEASE_SECONDS,
     }
-    ss.RecordWantLeaseRequest(args)
+    ss.RecordLeaseHolder(args)
     
     return nil
 }
@@ -755,7 +851,7 @@ func (ss *Storageserver) GetListRPC(args *storageproto.GetArgs, reply *storagepr
         Granted : true,
         ValidSeconds : LEASE_SECONDS,
     }
-    ss.RecordWantLeaseRequest(args)
+    ss.RecordLeaseHolder(args)
     
     return nil
 }
@@ -764,19 +860,38 @@ func (ss *Storageserver) PutRPC(args *storageproto.PutArgs, reply *storageproto.
     key := args.Key
     value := args.Value
     log.Printf("Storageserver.PutRPC: call key %s, value %s", key, value)
+      
+    // local
+    // 1. stop granting new lease on the key
+    // 2. send a revokeLease RPC to the holders of valid leases
+    // 3. not allow modification until all lease holders have 
+    //    replied with a RevokeLeaseReply containing an OK status,
+    //    or all of the leases have expired, including their guard times.
+    // 4. apply the modification
+    // 5. Can now resume granting lease for the key 
+    ss.leaseNotGrant[key] = true
+    ss.SendRevokeLeaseBlocking(key)
     ret := ss.localPut(key, value)
+    ss.leaseNotGrant[key] = false
+    
     if ret == true {
         reply.Status = storageproto.OK
     } else {
         reply.Status = storageproto.EPUTFAILED
     }
+    
     return nil
 }
 
 func (ss *Storageserver) AppendToListRPC(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
     key := args.Key
     value := args.Value
+    
+    ss.leaseNotGrant[key] = true
+    ss.SendRevokeLeaseBlocking(key)
     ret := ss.localAppendToList(key, value)
+    ss.leaseNotGrant[key] = false
+    
     if ret == true {
         reply.Status = storageproto.OK
     } else {
@@ -788,7 +903,12 @@ func (ss *Storageserver) AppendToListRPC(args *storageproto.PutArgs, reply *stor
 func (ss *Storageserver) RemoveFromListRPC(args *storageproto.PutArgs, reply *storageproto.PutReply) error {
     key := args.Key
     value := args.Value
+    
+    ss.leaseNotGrant[key] = true
+    ss.SendRevokeLeaseBlocking(key)
     ret := ss.localRemoveFromList(key, value)
+    ss.leaseNotGrant[key] = false
+    
     if ret == true {
         reply.Status = storageproto.OK
     } else {
